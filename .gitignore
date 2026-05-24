@@ -1,0 +1,19 @@
+.env
+
+# Local tooling caches
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/
+
+# Generated compose output
+.generated/
+
+# Runtime data and state
+.podman/
+data/
+
+# Logs and editor noise
+*.log
+*.swp
+*.swo
+.DS_Store

@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STACK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+COMPOSE_SCRIPT="${STACK_DIR}/scripts/compose.sh"
+HEAL_SCRIPT="${STACK_DIR}/scripts/heal-dns.sh"
+RENDER_SCRIPT="${STACK_DIR}/scripts/render.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: llama <subcommand> [args...]
+
+Subcommands:
+  up [services...]      Start stack (default: pull + start discovered llama services, then open-webui)
+  down [args...]        Stop stack (passes args to compose down)
+  logs [services...]    Follow logs (default: discovered llama services + open-webui)
+  ps [args...]          Show container status
+  pull [services...]    Pull images (default: all discovered services)
+  restart [services...] Restart services (default: all)
+  heal-dns              Manual recovery for aardvark-dns/netns mismatch
+  render                Render dynamic compose and print file path
+  completion <shell>    Print shell completion script (bash|zsh)
+  compose <args...>     Run raw compose command via project wrapper
+  help                  Show this help
+EOF
+}
+
+discover_services() {
+  local output
+  if ! output="$("${COMPOSE_SCRIPT}" config --services 2>&1)"; then
+    echo "${output}" >&2
+    return 1
+  fi
+  mapfile -t DISCOVERED_SERVICES <<< "${output}"
+}
+
+discover_llama_services() {
+  discover_services || return 1
+  DISCOVERED_LLAMA_SERVICES=()
+  for service in "${DISCOVERED_SERVICES[@]}"; do
+    if [[ "${service}" == llama-server-* ]]; then
+      DISCOVERED_LLAMA_SERVICES+=("${service}")
+    fi
+  done
+}
+
+print_bash_completion() {
+  cat <<'EOF'
+_llama_completion() {
+  local cur prev
+  local subcommands="up down logs ps status pull restart heal-dns render completion compose help"
+  local services="llama-server-1 llama-server-2 open-webui"
+
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "${subcommands}" -- "${cur}") )
+    return 0
+  fi
+
+  case "${COMP_WORDS[1]}" in
+    up|logs|pull|restart)
+      COMPREPLY=( $(compgen -W "${services}" -- "${cur}") )
+      ;;
+    completion)
+      COMPREPLY=( $(compgen -W "bash zsh" -- "${cur}") )
+      ;;
+    *)
+      COMPREPLY=()
+      ;;
+  esac
+}
+
+complete -F _llama_completion llama
+EOF
+}
+
+print_zsh_completion() {
+  cat <<'EOF'
+#compdef llama
+
+_llama_completion() {
+  local -a subcommands
+  local -a services
+
+  subcommands=(
+    'up:Start stack'
+    'down:Stop stack'
+    'logs:Follow logs'
+    'ps:Show status'
+    'status:Show status'
+    'pull:Pull images'
+    'restart:Restart services'
+    'heal-dns:Manual DNS recovery'
+    'render:Render dynamic compose'
+    'completion:Print completion script'
+    'compose:Run raw compose command'
+    'help:Show help'
+  )
+
+  services=(
+    'llama-server-1'
+    'llama-server-2'
+    'open-webui'
+  )
+
+  if (( CURRENT == 2 )); then
+    _describe 'subcommand' subcommands
+    return
+  fi
+
+  case "$words[2]" in
+    up|logs|pull|restart)
+      _describe 'service' services
+      ;;
+    completion)
+      _values 'shell' bash zsh
+      ;;
+  esac
+}
+
+compdef _llama_completion llama
+EOF
+}
+
+cmd="${1:-help}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "${cmd}" in
+  up)
+    if [[ $# -eq 0 ]]; then
+      discover_llama_services || exit 1
+      if [[ ${#DISCOVERED_LLAMA_SERVICES[@]} -eq 0 ]]; then
+        echo "No llama-server services were found in compose config." >&2
+        exit 1
+      fi
+      "${COMPOSE_SCRIPT}" pull "${DISCOVERED_LLAMA_SERVICES[@]}" open-webui
+      "${COMPOSE_SCRIPT}" up -d "${DISCOVERED_LLAMA_SERVICES[@]}"
+      "${COMPOSE_SCRIPT}" up -d --no-deps open-webui
+    else
+      "${COMPOSE_SCRIPT}" up -d "$@"
+    fi
+    ;;
+  down)
+    "${COMPOSE_SCRIPT}" down "$@"
+    ;;
+  logs)
+    if [[ $# -eq 0 ]]; then
+      discover_llama_services || exit 1
+      set -- "${DISCOVERED_LLAMA_SERVICES[@]}" open-webui
+    fi
+    "${COMPOSE_SCRIPT}" logs -f "$@"
+    ;;
+  ps|status)
+    "${COMPOSE_SCRIPT}" ps "$@"
+    ;;
+  pull)
+    if [[ $# -eq 0 ]]; then
+      discover_services || exit 1
+      set -- "${DISCOVERED_SERVICES[@]}"
+    fi
+    "${COMPOSE_SCRIPT}" pull "$@"
+    ;;
+  restart)
+    if [[ $# -eq 0 ]]; then
+      "${COMPOSE_SCRIPT}" restart
+    else
+      "${COMPOSE_SCRIPT}" restart "$@"
+    fi
+    ;;
+  heal-dns)
+    "${HEAL_SCRIPT}"
+    ;;
+  render)
+    "${RENDER_SCRIPT}"
+    ;;
+  completion)
+    case "${1:-}" in
+      bash)
+        print_bash_completion
+        ;;
+      zsh)
+        print_zsh_completion
+        ;;
+      *)
+        echo "Usage: llama completion <bash|zsh>" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  compose)
+    if [[ $# -eq 0 ]]; then
+      echo "llama compose requires arguments" >&2
+      exit 2
+    fi
+    "${COMPOSE_SCRIPT}" "$@"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown subcommand: ${cmd}" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
