@@ -1,11 +1,11 @@
 # local-llm-stack
 
 `llama.cpp + Open WebUI` を `podman-compose` で起動するための最小構成です。
-この構成は `models` に指定したモデルを必要数だけ同時起動できます。
+この構成は `models` に指定した複数モデルを、`llama-server` の router mode で 1 コンテナから切り替えて利用できます。
 
 ## 構成
 
-- `llama-server-N`: `ghcr.io/ggml-org/llama.cpp:server-vulkan`（`models` の件数ぶん生成）
+- `llama-server-1`: `ghcr.io/ggml-org/llama.cpp:server-vulkan`（router mode / 単一コンテナ）
 - `open-webui`: `ghcr.io/open-webui/open-webui:main`
 
 このホストでは rootless Podman の既定 storage が `overlay on btrfs` で失敗するため、`scripts/compose.sh` は **プロジェクトローカルの `vfs` storage** を使います。
@@ -39,9 +39,14 @@ gemma4-26B=unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q4_K_M
 
 各モデルは `--hf-repo` で起動されます。`:<quant>` を省略した場合は llama.cpp 側の既定（通常 `Q4_K_M`）が使われます。
 
-ポートは `LLAMA_BASE_PORT` から順番に割り当てられます。例えば 3 モデルなら `8080`, `8081`, `8082` です。
+`llama render` は次の 2 ファイルを生成します。
 
-初回起動時はモデルをダウンロードするため時間がかかります。キャッシュは `./data/llama-server-N/.cache` に保持されます。
+- `./.generated/compose.dynamic.yaml`
+- `./.generated/models.preset.ini`
+
+`models.preset.ini` は `llama-server` の `--models-preset` に渡され、1 つの server コンテナ内で複数モデルを扱います。
+
+初回ロード時はモデルをダウンロードするため時間がかかります。キャッシュは `./data/llama-server-1/.cache` に保持されます。
 
 別モデルを使う場合は `models` を編集します。
 
@@ -103,7 +108,7 @@ llama down
 
 主なサブコマンド:
 
-- `llama up` : 既定サービス起動（llama 2系 + open-webui）
+- `llama up` : 既定サービス起動（llama-server-1 + open-webui）
 - `llama down` : 停止
 - `llama logs` : 既定サービスのログ追従
 - `llama ps` : 状態確認
@@ -119,7 +124,7 @@ cd /home/denebola213/Projects/local-llm-stack
 
 `scripts/up.sh` は Podman Compose の依存待機で固まるケースを避けるため、llama サービスを先に起動してから Open WebUI を `--no-deps` で起動します。
 
-- llama.cpp API: `http://127.0.0.1:${LLAMA_BASE_PORT + i}/v1`（i は 0 始まり）
+- llama.cpp API: `http://127.0.0.1:${LLAMA_BASE_PORT}/v1`
 - Open WebUI: `http://127.0.0.1:3000`
 
 停止:
@@ -142,11 +147,15 @@ llama heal-dns
 llama up
 ```
 
-`Cannot connect to host llama-server-N:8080 ... [Temporary failure in name resolution]` のようなエラーが出た場合にだけ実行してください。通常運用では不要です。
+`Cannot connect to host llama-server-1:8080 ... [Temporary failure in name resolution]` のようなエラーが出た場合にだけ実行してください。通常運用では不要です。
 
 ## 3. Open WebUI
 
-Open WebUI は起動時に、生成された `llama-server-N` すべてを OpenAI互換API として自動登録します。
+Open WebUI は起動時に `llama-server-1` を OpenAI 互換 API として登録します。
+
+`llama-server-1` は router mode で動作し、リクエストの `model` フィールドに応じて対象モデルへルーティングします。
+
+生成される `models.preset.ini` では `load-on-startup = false` なので、モデルは必要時にロードされます（初回は待ち時間が発生します）。
 
 ## 4. 調整ポイント
 
