@@ -1,0 +1,58 @@
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    restart: unless-stopped
+    environment:
+      LD_LIBRARY_PATH: "/app"
+      HF_TOKEN: ""
+      XDG_CACHE_HOME: "/data/.cache"
+    ports:
+      - "8080:8080"
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - /home/denebola213/Projects/local-llm-stack/data/llama-server-1:/data
+      - /home/denebola213/Projects/local-llm-stack/models.ini:/models/models.ini:ro
+    security_opt:
+      - label=disable
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --timeout
+      - "1200"
+      - --models-preset
+      - /models/models.ini
+      - --models-max
+      - "0"
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':1F90 ' /proc/net/tcp || grep -q ':1F90 ' /proc/net/tcp6"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    restart: unless-stopped
+    depends_on:
+      llama-server:
+        condition: service_healthy
+    ports:
+      - "3000:8080"
+    volumes:
+      - /home/denebola213/Projects/local-llm-stack/data/open-webui:/app/backend/data
+    environment:
+      ENABLE_OLLAMA_API: "False"
+      ENABLE_OPENAI_API: "True"
+      OPENAI_API_BASE_URLS: "http://llama-server:8080/v1"
+      OPENAI_API_KEYS: "sk-local"
+      AIOHTTP_CLIENT_TIMEOUT: "900"
+      WEBUI_SECRET_KEY: "replace-this-secret"
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':1F90 ' /proc/net/tcp || grep -q ':1F90 ' /proc/net/tcp6"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

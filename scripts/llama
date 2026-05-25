@@ -4,7 +4,6 @@ set -euo pipefail
 STACK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_SCRIPT="${STACK_DIR}/scripts/compose.sh"
 HEAL_SCRIPT="${STACK_DIR}/scripts/heal-dns.sh"
-RENDER_SCRIPT="${STACK_DIR}/scripts/render.sh"
 
 usage() {
   cat <<'EOF'
@@ -18,7 +17,6 @@ Subcommands:
   pull [services...]    Pull images (default: all discovered services)
   restart [services...] Restart services (default: all)
   heal-dns              Manual recovery for aardvark-dns/netns mismatch
-  render                Render dynamic compose and print file path
   completion <shell>    Print shell completion script (bash|zsh)
   compose <args...>     Run raw compose command via project wrapper
   help                  Show this help
@@ -38,7 +36,7 @@ discover_llama_services() {
   discover_services || return 1
   DISCOVERED_LLAMA_SERVICES=()
   for service in "${DISCOVERED_SERVICES[@]}"; do
-    if [[ "${service}" == llama-server-* ]]; then
+    if [[ "${service}" == "llama-server" || "${service}" == llama-server-* ]]; then
       DISCOVERED_LLAMA_SERVICES+=("${service}")
     fi
   done
@@ -48,8 +46,8 @@ print_bash_completion() {
   cat <<'EOF'
 _llama_completion() {
   local cur prev
-  local subcommands="up down logs ps status pull restart heal-dns render completion compose help"
-  local services="llama-server-1 llama-server-2 open-webui"
+  local subcommands="up down logs ps status pull restart heal-dns completion compose help"
+  local services="llama-server open-webui"
 
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
@@ -93,15 +91,13 @@ _llama_completion() {
     'pull:Pull images'
     'restart:Restart services'
     'heal-dns:Manual DNS recovery'
-    'render:Render dynamic compose'
     'completion:Print completion script'
     'compose:Run raw compose command'
     'help:Show help'
   )
 
   services=(
-    'llama-server-1'
-    'llama-server-2'
+    'llama-server'
     'open-webui'
   )
 
@@ -173,9 +169,6 @@ case "${cmd}" in
     ;;
   heal-dns)
     "${HEAL_SCRIPT}"
-    ;;
-  render)
-    "${RENDER_SCRIPT}"
     ;;
   completion)
     case "${1:-}" in
