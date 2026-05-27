@@ -11,8 +11,8 @@ services:
     devices:
       - /dev/dri:/dev/dri
     volumes:
-      - /home/denebola213/Projects/local-llm-stack/data/llama-server-1:/data
-      - /home/denebola213/Projects/local-llm-stack/models.ini:/models/models.ini:ro
+      - ./data/llama-server:/data
+      - ./models.ini:/models/models.ini:ro
     security_opt:
       - label=disable
     command:
@@ -39,7 +39,7 @@ services:
     ports:
       - "8082:8080"
     volumes:
-      - /home/denebola213/Projects/local-llm-stack/data/searxng-limits:/etc/searxng
+      - ./data/searxng-limits:/etc/searxng
     environment:
       SEARXNG_BASE_URL: "http://searxng:8080/"
       UWSGI_WORKERS: "1"
@@ -58,7 +58,7 @@ services:
     ports:
       - "3000:8080"
     volumes:
-      - /home/denebola213/Projects/local-llm-stack/data/open-webui:/app/backend/data
+      - ./data/open-webui:/app/backend/data
     environment:
       ENABLE_OLLAMA_API: "False"
       ENABLE_OPENAI_API: "True"
@@ -77,35 +77,15 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    networks:
-      internal-net:
-        ipv4_address: 172.20.0.3  # IPを固定するとTS_ROUTESの指定が楽になります
 
-# 2. Tailscaleのコネクター役コンテナ
-  tailscale:
-    image: tailscale/tailscale:latest
-    container_name: tailscale_router
-    hostname: llama-gateway  # Tailscale上でのマシン名
-    environment:
-      - TS_AUTHKEY=tskey-auth-kAJZR1Y64611CNTRL-SEutAP7LFhe1nYFbPhNkgev99Pb7EbVDe
-      - TS_ROUTES=172.20.0.0/16  # Compose内部ネットワークのCIDRを指定
-    volumes:
-      - tailscale-data:/var/lib/tailscale
-      - /dev/net/tun:/dev/net/tun  # ルーティングに必要
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    networks:
-      internal-net:
-        ipv4_address: 172.20.0.2  # IPを固定するとTS_ROUTESの指定が楽になります
+  cloudflared:
+    image: docker.io/cloudflare/cloudflared:latest
     restart: unless-stopped
-
-networks:
-  internal-net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16  # 内部ネットワークの範囲を明示的に固定
-
-volumes:
-  tailscale-data:
+    environment:
+      CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN}

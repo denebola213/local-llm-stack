@@ -10,9 +10,9 @@ usage() {
 Usage: llama <subcommand> [args...]
 
 Subcommands:
-  up [services...]      Start stack (default: pull + start discovered llama services, then open-webui)
+  up [services...]      Start stack (default: pull all services, start all non-open-webui, then open-webui)
   down [args...]        Stop stack (passes args to compose down)
-  logs [services...]    Follow logs (default: discovered llama services + open-webui)
+  logs [services...]    Follow logs (default: all discovered services)
   ps [args...]          Show container status
   pull [services...]    Pull images (default: all discovered services)
   restart [services...] Restart services (default: all)
@@ -42,15 +42,34 @@ discover_llama_services() {
   done
 }
 
+discover_start_services() {
+  discover_services || return 1
+  DISCOVERED_START_SERVICES=()
+  HAS_OPEN_WEBUI=0
+
+  for service in "${DISCOVERED_SERVICES[@]}"; do
+    if [[ "${service}" == "open-webui" ]]; then
+      HAS_OPEN_WEBUI=1
+      continue
+    fi
+    DISCOVERED_START_SERVICES+=("${service}")
+  done
+}
+
 print_bash_completion() {
   cat <<'EOF'
 _llama_completion() {
   local cur prev
   local subcommands="up down logs ps status pull restart heal-dns completion compose help"
-  local services="llama-server searxng open-webui"
+  local services
 
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  services="$(llama compose config --services 2>/dev/null | tr '\n' ' ')"
+  if [[ -z "${services// }" ]]; then
+    services="llama-server open-webui"
+  fi
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "${subcommands}" -- "${cur}") )
@@ -96,11 +115,10 @@ _llama_completion() {
     'help:Show help'
   )
 
-  services=(
-    'llama-server'
-    'searxng'
-    'open-webui'
-  )
+  services=(${(f)"$(llama compose config --services 2>/dev/null)"})
+  if (( ${#services[@]} == 0 )); then
+    services=('llama-server' 'open-webui')
+  fi
 
   if (( CURRENT == 2 )); then
     _describe 'subcommand' subcommands
@@ -129,14 +147,21 @@ fi
 case "${cmd}" in
   up)
     if [[ $# -eq 0 ]]; then
-      discover_llama_services || exit 1
-      if [[ ${#DISCOVERED_LLAMA_SERVICES[@]} -eq 0 ]]; then
-        echo "No llama-server services were found in compose config." >&2
+      discover_start_services || exit 1
+      if [[ ${#DISCOVERED_SERVICES[@]} -eq 0 ]]; then
+        echo "No services were found in compose config." >&2
         exit 1
       fi
-      "${COMPOSE_SCRIPT}" pull "${DISCOVERED_LLAMA_SERVICES[@]}" searxng open-webui
-      "${COMPOSE_SCRIPT}" up -d "${DISCOVERED_LLAMA_SERVICES[@]}" searxng
-      "${COMPOSE_SCRIPT}" up -d --no-deps open-webui
+
+      "${COMPOSE_SCRIPT}" pull "${DISCOVERED_SERVICES[@]}"
+
+      if [[ ${#DISCOVERED_START_SERVICES[@]} -gt 0 ]]; then
+        "${COMPOSE_SCRIPT}" up -d "${DISCOVERED_START_SERVICES[@]}"
+      fi
+
+      if [[ ${HAS_OPEN_WEBUI} -eq 1 ]]; then
+        "${COMPOSE_SCRIPT}" up -d --no-deps open-webui
+      fi
     else
       "${COMPOSE_SCRIPT}" up -d "$@"
     fi
@@ -146,8 +171,8 @@ case "${cmd}" in
     ;;
   logs)
     if [[ $# -eq 0 ]]; then
-      discover_llama_services || exit 1
-      set -- "${DISCOVERED_LLAMA_SERVICES[@]}" searxng open-webui
+      discover_services || exit 1
+      set -- "${DISCOVERED_SERVICES[@]}"
     fi
     "${COMPOSE_SCRIPT}" logs -f "$@"
     ;;
