@@ -9,7 +9,8 @@ COMPOSE_FILE_PATH="${STACK_DIR}/compose.yaml"
 mkdir -p \
   "${PODMAN_ROOT}" \
   "${PODMAN_RUNROOT}" \
-  "${STACK_DIR}/data/open-webui"
+  "${STACK_DIR}/data/open-webui" \
+  "${STACK_DIR}/data/searxng-limits"
 
 exec podman-compose \
   --project-name local-llm-stack \

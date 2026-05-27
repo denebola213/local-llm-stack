@@ -33,12 +33,28 @@ services:
       retries: 20
       start_period: 120s
 
+  searxng:
+    image: ghcr.io/searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    volumes:
+      - /home/denebola213/Projects/local-llm-stack/data/searxng-limits:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: "http://searxng:8080/"
+      UWSGI_WORKERS: "1"
+      UWSGI_THREADS: "4"
+    security_opt:
+      - label=disable
+
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     restart: unless-stopped
     depends_on:
       llama-server:
         condition: service_healthy
+      searxng:
+        condition: service_started
     ports:
       - "3000:8080"
     volumes:
@@ -50,9 +66,46 @@ services:
       OPENAI_API_KEYS: "sk-local"
       AIOHTTP_CLIENT_TIMEOUT: "900"
       WEBUI_SECRET_KEY: "replace-this-secret"
+      ENABLE_WEB_SEARCH: True
+      WEB_SEARCH_ENGINE: "searxng"
+      WEB_SEARCH_RESULT_COUNT: 3
+      WEB_SEARCH_CONCURRENT_REQUESTS: 10
+      SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>"
     healthcheck:
       test: ["CMD-SHELL", "grep -q ':1F90 ' /proc/net/tcp || grep -q ':1F90 ' /proc/net/tcp6"]
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 20s
+    networks:
+      internal-net:
+        ipv4_address: 172.20.0.3  # IPを固定するとTS_ROUTESの指定が楽になります
+
+# 2. Tailscaleのコネクター役コンテナ
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale_router
+    hostname: llama-gateway  # Tailscale上でのマシン名
+    environment:
+      - TS_AUTHKEY=tskey-auth-kAJZR1Y64611CNTRL-SEutAP7LFhe1nYFbPhNkgev99Pb7EbVDe
+      - TS_ROUTES=172.20.0.0/16  # Compose内部ネットワークのCIDRを指定
+    volumes:
+      - tailscale-data:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun  # ルーティングに必要
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      internal-net:
+        ipv4_address: 172.20.0.2  # IPを固定するとTS_ROUTESの指定が楽になります
+    restart: unless-stopped
+
+networks:
+  internal-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16  # 内部ネットワークの範囲を明示的に固定
+
+volumes:
+  tailscale-data:

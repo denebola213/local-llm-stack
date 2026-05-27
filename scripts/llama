@@ -47,7 +47,7 @@ print_bash_completion() {
 _llama_completion() {
   local cur prev
   local subcommands="up down logs ps status pull restart heal-dns completion compose help"
-  local services="llama-server open-webui"
+  local services="llama-server searxng open-webui"
 
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
@@ -98,6 +98,7 @@ _llama_completion() {
 
   services=(
     'llama-server'
+    'searxng'
     'open-webui'
   )
 
@@ -133,8 +134,8 @@ case "${cmd}" in
         echo "No llama-server services were found in compose config." >&2
         exit 1
       fi
-      "${COMPOSE_SCRIPT}" pull "${DISCOVERED_LLAMA_SERVICES[@]}" open-webui
-      "${COMPOSE_SCRIPT}" up -d "${DISCOVERED_LLAMA_SERVICES[@]}"
+      "${COMPOSE_SCRIPT}" pull "${DISCOVERED_LLAMA_SERVICES[@]}" searxng open-webui
+      "${COMPOSE_SCRIPT}" up -d "${DISCOVERED_LLAMA_SERVICES[@]}" searxng
       "${COMPOSE_SCRIPT}" up -d --no-deps open-webui
     else
       "${COMPOSE_SCRIPT}" up -d "$@"
@@ -146,7 +147,7 @@ case "${cmd}" in
   logs)
     if [[ $# -eq 0 ]]; then
       discover_llama_services || exit 1
-      set -- "${DISCOVERED_LLAMA_SERVICES[@]}" open-webui
+      set -- "${DISCOVERED_LLAMA_SERVICES[@]}" searxng open-webui
     fi
     "${COMPOSE_SCRIPT}" logs -f "$@"
     ;;
