@@ -1,6 +1,6 @@
 services:
   llama-server:
-    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    image: ghcr.io/ggml-org/llama.cpp:server-rocm
     restart: unless-stopped
     environment:
       LD_LIBRARY_PATH: "/app"
@@ -8,13 +8,17 @@ services:
       XDG_CACHE_HOME: "/data/.cache"
     ports:
       - "8080:8080"
+    group_add:
+      - keep-groups
     devices:
       - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
     volumes:
       - ./data/llama-server:/data
       - ./models.ini:/models/models.ini:ro
     security_opt:
       - label=disable
+      - seccomp=unconfined
     command:
       - --host
       - 0.0.0.0
